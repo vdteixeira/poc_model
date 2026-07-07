@@ -16,20 +16,29 @@ tentativas comparando-as entre si; você só precisa de CENÁRIOS (transcrição
 + pergunta), que geramos à mão em dataset_ptbr.py. Nenhum rótulo de treino.
 
 Requisitos:
-    GPU NVIDIA/CUDA (não roda em Apple Silicon — use SkyPilotBackend/cloud)
-    pip install "openpipe-art[backend]" openai tenacity langdetect
+    - macOS/Apple Silicon ou máquina sem CUDA: use ServerlessBackend
+      pip install openpipe-art openai tenacity langdetect
+      export WANDB_API_KEY=...
+    - Linux com GPU NVIDIA/CUDA: pode usar LocalBackend
+      pip install "openpipe-art[backend]" openai tenacity langdetect
     export OPENAI_API_KEY=...   # usado só pelo juiz RULER e pelo juiz de correção
 
 Rode:
     python train_meeting_agent.py   # NUM_STEPS=5 por padrão -> smoke test do ciclo
+
+Backend:
+    ART_BACKEND=auto       # padrão: local se Linux+CUDA, senão serverless
+    ART_BACKEND=serverless # força backend gerenciado; não precisa vLLM local
+    ART_BACKEND=local      # força backend local; exige Linux+CUDA+openpipe-art[backend]
 """
 
 import asyncio
 import json
+import os
+import platform
 import re
 
 import art
-from art.local.backend import LocalBackend
 from art.rewards import ruler_score_group
 from art.trajectories import History
 from openai import AsyncOpenAI
@@ -69,6 +78,62 @@ VALIDATE_EVERY = 5
 # Cliente separado só para os juízes (API OpenAI real). O modelo em treino
 # usa model.openai_client() (endpoint local servido pelo backend do ART).
 judge_client = AsyncOpenAI()
+
+
+def _cuda_available() -> bool:
+    """Retorna True só quando há CUDA utilizável neste processo.
+
+    Importante: Apple Silicon tem GPU, mas não CUDA; `LocalBackend` do ART
+    precisa do runtime vLLM/CUDA, então macOS/MPS não serve para esse backend.
+    """
+    try:
+        import torch
+
+        return bool(torch.cuda.is_available())
+    except Exception:
+        return False
+
+
+def make_backend():
+    """Escolhe um backend que não tente importar/instalar vLLM em macOS.
+
+    `LocalBackend` inicia um runtime vLLM local para inferência/treino. Esse
+    caminho é apropriado apenas em Linux com GPU NVIDIA/CUDA e dependências do
+    extra `openpipe-art[backend]`. Em macOS/Apple Silicon, o fix correto para
+    `ModuleNotFoundError: No module named 'vllm'` é usar `ServerlessBackend`.
+    """
+    requested = os.getenv("ART_BACKEND", "auto").strip().lower()
+    if requested not in {"auto", "local", "serverless"}:
+        raise ValueError(
+            "ART_BACKEND deve ser 'auto', 'local' ou 'serverless' "
+            f"(recebido: {requested!r})."
+        )
+
+    local_supported = platform.system() == "Linux" and _cuda_available()
+
+    if requested == "local" and not local_supported:
+        raise RuntimeError(
+            "ART_BACKEND=local exige Linux com GPU NVIDIA/CUDA. "
+            "Neste ambiente, use ART_BACKEND=serverless para evitar o erro "
+            "`ModuleNotFoundError: No module named 'vllm'`."
+        )
+
+    if requested == "serverless" or (requested == "auto" and not local_supported):
+        if not os.getenv("WANDB_API_KEY"):
+            raise RuntimeError(
+                "ServerlessBackend requer WANDB_API_KEY. Defina "
+                "`export WANDB_API_KEY=...` ou use ART_BACKEND=local em uma "
+                "máquina Linux com GPU NVIDIA/CUDA."
+            )
+        from art.serverless.backend import ServerlessBackend
+
+        print("Backend: ServerlessBackend (sem vLLM local).")
+        return ServerlessBackend()
+
+    from art.local.backend import LocalBackend
+
+    print("Backend: LocalBackend (Linux+CUDA/vLLM local).")
+    return LocalBackend()
 
 
 # ---------------------------------------------------------------------------
@@ -340,7 +405,7 @@ async def validate(model: art.Model) -> None:
 # Loop de treino — mesma forma do ART-E: gather -> RULER -> train.
 # ---------------------------------------------------------------------------
 async def main() -> None:
-    backend = LocalBackend()
+    backend = make_backend()
 
     model = art.TrainableModel(
         name="meeting-agent-ptbr-001",
