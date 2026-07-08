@@ -33,11 +33,16 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from openai import AsyncOpenAI
 
 MAX_TURNS = 10
+
+# O ART grava o estado em .art/ relativo ao cwd; ancoramos na pasta deste
+# módulo (onde os notebooks treinaram) para funcionar de qualquer cwd.
+DEFAULT_ART_PATH = str(Path(__file__).resolve().parent / ".art")
 
 SYSTEM_PROMPT = (
     "Você é um assistente de reuniões em português do Brasil. Sua tarefa é "
@@ -251,16 +256,18 @@ async def connect_tinker(
     name: str = "meeting-agent-ptbr-002",
     project: str = "tag-ai-meeting-agent",
     base_model: str = "Qwen/Qwen3.6-35B-A3B",
+    art_path: str | None = None,
 ) -> tuple[AsyncOpenAI, str]:
     """Conecta no modelo treinado servido pelo Tinker (via ART TinkerNativeBackend).
 
-    Requer TINKER_API_KEY no ambiente e o estado do treino em .art/ (mesmo
-    checkout onde o treino rodou, ou restaurado pelo notebook de marcos).
+    Requer TINKER_API_KEY no ambiente e o estado do treino no .art/ desta pasta
+    (onde os notebooks treinaram; restaurável pelo notebook de marcos). Use
+    art_path para apontar outro diretório de estado.
     """
     import art
     from art.tinker_native import TinkerNativeBackend
 
-    backend = TinkerNativeBackend()
+    backend = TinkerNativeBackend(path=art_path or DEFAULT_ART_PATH)
     model = art.TrainableModel(name=name, project=project, base_model=base_model)
     await model.register(backend)
     step = await model.get_step()
