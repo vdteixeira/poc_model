@@ -176,5 +176,16 @@ async def chat_completions(request: Request) -> Any:
 
 
 if __name__ == "__main__":
+    import sys
+
+    if sys.version_info >= (3, 14):
+        sys.exit(
+            "Este serviço requer Python <= 3.13: o stack do ART (mp_actors/"
+            "nest_asyncio) ainda não é compatível com o 3.14 (erros de event "
+            "loop no startup). Use, por exemplo:\n"
+            "  /Library/Frameworks/Python.framework/Versions/3.13/bin/python3 "
+            "serve_meeting_model.py")
     port = int(os.environ.get("SERVE_PORT", "8100"))
-    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
+    # loop="asyncio": o mp_actors do ART usa nest_asyncio, que não consegue
+    # patchear o uvloop (ValueError no startup quando uvloop está instalado).
+    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info", loop="asyncio")
