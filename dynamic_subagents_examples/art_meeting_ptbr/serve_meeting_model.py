@@ -85,7 +85,7 @@ async def _keepalive(interval: int) -> None:
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(_app: FastAPI):
     try:
         from dotenv import load_dotenv, find_dotenv
         load_dotenv(find_dotenv(usecwd=True))
