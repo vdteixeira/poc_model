@@ -1,0 +1,1 @@
+{"name": "meeting-agent-ptbr-001", "project": "tag-ai-meeting-agent", "entity": null, "id": null, "run_id": null, "config": null, "trainable": true, "inference_api_key": null, "inference_base_url": null, "inference_model_name": null, "base_path": ".art", "report_metrics": null, "base_model": "Qwen/Qwen3.6-35B-A3B", "lora_config": null, "_internal_config": null}
